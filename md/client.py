@@ -1,8 +1,8 @@
 import sys
 import socket
 import threading
+import json
 from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QTextEdit, QDialog, QMessageBox
-
 from PyQt5.QtCore import Qt, QPoint
 from PyQt5.QtGui import QPainter, QPen, QImage
 
@@ -43,7 +43,6 @@ class DrawingArea(QWidget):
             painter = QPainter(self.image)
             painter.setPen(QPen(self.brush_color, self.brush_size, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
             painter.drawLine(self.last_pos, event.pos())
-            print(f"Drawing line from {self.last_pos} to {event.pos()}")
             self.send_draw_message(self.last_pos, event.pos())
             self.last_pos = event.pos()
             self.update()
@@ -53,13 +52,16 @@ class DrawingArea(QWidget):
             self.drawing = False
 
     def paintEvent(self, event):
-        print("Painting!")
         painter = QPainter(self)
         painter.drawImage(self.rect(), self.image, self.image.rect())
 
     def send_draw_message(self, start, end):
-        message = f'DRAW {start.x()} {start.y()} {end.x()} {end.y()}'
-        client.send(message.encode('utf-8'))
+        message = {
+            'type': 'draw',
+            'start': {'x': start.x(), 'y': start.y()},
+            'end': {'x': end.x(), 'y': end.y()}
+        }
+        client.send(json.dumps(message).encode('utf-8'))
 
 class App(QWidget):
     def __init__(self):
@@ -70,33 +72,39 @@ class App(QWidget):
     def initUI(self):
         self.setWindowTitle("Network Drawing and Messaging App")
         layout = QHBoxLayout(self)
+        left_layout = QVBoxLayout()
+        layout.addLayout(left_layout)
         self.drawing_area = DrawingArea()
         layout.addWidget(self.drawing_area)
+        self.current_word = None
 
-        
         right_layout = QVBoxLayout()
         self.game_state_label = QLabel("Waiting for other players to join", self)
-        self.game_state_label.setFixedHeight(30)
-        self.game_state_label.setFixedWidth(200)
-        right_layout.addWidget(self.game_state_label)
+        self.game_state_label.setMaximumWidth(200)
+        self.game_state_label.setAlignment(Qt.AlignCenter)
+        self.game_state_label.setWordWrap(True)
+
+        self.stop_button = QPushButton("Stop Drawing", self)
+        self.stop_button.setEnabled(False)
+        self.stop_button.clicked.connect(self.stop_drawing)
+        self.logout_button = QPushButton("Logout", self)
+        self.logout_button.clicked.connect(self.logout)
+        left_layout.addWidget(self.game_state_label)
+        left_layout.addWidget(self.stop_button)
+        left_layout.addWidget(self.logout_button)
+
         self.text_area = QTextEdit()
         self.text_area.setReadOnly(True)
         right_layout.addWidget(self.text_area)
 
-        
-        
-
-        
-        
         self.msg_entry = QLineEdit()
         send_button = QPushButton("Send")
         send_button.clicked.connect(self.send_message)
         right_layout.addWidget(self.msg_entry)
         right_layout.addWidget(send_button)
-        
         layout.addLayout(right_layout)
-        
-        self.drawing_area.enabled = False #-------------------------------
+
+        self.drawing_area.enabled = False
 
         self.get_nickname()
 
@@ -104,46 +112,88 @@ class App(QWidget):
         dialog = NicknameDialog(self)
         if dialog.exec_() == QDialog.Accepted:
             self.nickname = dialog.nickname_entry.text()
-            client.send(self.nickname.encode('utf-8'))
-
+            client.send(json.dumps({'type': 'nickname', 'nickname': self.nickname}).encode('utf-8'))
+    def logout(self):
+        client.send(json.dumps({'type': 'leave', 'nickname': self.nickname}).encode('utf-8'))
+        client.close()
+        self.close()
     def send_message(self):
         message = f'{self.nickname}: {self.msg_entry.text()}'
-        client.send(message.encode('utf-8'))
+        client.send(json.dumps({'type': 'message', 'message': message}).encode('utf-8'))
+        if(self.current_word and self.msg_entry.text().lower() == self.current_word.lower()):
+            client.send(json.dumps({'type': 'message', 'message': f'{self.nickname} guessed the word!'}).encode('utf-8'))
         self.msg_entry.clear()
 
     def receive(self):
         while True:
             try:
-                message = client.recv(1024).decode('utf-8')
-                if message.startswith('DRAW'):
-                    if not self.drawing_area.enabled:  # Check if other client is drawing
-                        _, x1, y1, x2, y2 = message.split()
-                        print("Drawing!")
-                        print(f"Coordinates: Start({x1}, {y1}), End({x2}, {y2})")
-                        self.drawing_area.update()
-                        self.draw_other(int(x1), int(y1), int(x2), int(y2))
-                elif 'You are drawing now' in message:
-                    print("You are drawing now!")
-                    self.game_state_label.setText(message)
-                    self.drawing_area.enabled = True
-                elif 'is drawing!' in message or 'Draw' in message:
-                    self.game_state_label.setText(message)
-                    print("Someone is drawing!")
-                    self.drawing_area.enabled = False
-                else:
-                    self.text_area.append(message)
+                data = client.recv(1024)
+                # print(data)
+                if not data:
+                    break
+                
+                messages = data.decode('utf-8').split('\n')
+                for message in messages:
+                    try:
+                        if message.strip():
+                            message = json.loads(message)
+                            self.handle_message(message)
+                    except json.JSONDecodeError as e:
+                        print(f"Error decoding JSON: {message}")
+                        print(f"Error details: {str(e)}")
+                        continue
             except Exception as e:
                 print("Error receiving data:", e)
                 client.close()
                 break
 
-    def draw_other(self, x1, y1, x2, y2):
+    def handle_message(self, message):
+        print(message)
+        if message['type'] == 'draw':
+            if not self.drawing_area.enabled:
+                start = QPoint(message['start']['x'], message['start']['y'])
+                end = QPoint(message['end']['x'], message['end']['y'])
+                # self.game_state_label.clear()
+                # self.game_state_label.setText(f'{message["nickname"]} is drawing')
+                self.current_word = message.get('word')
+                self.draw_other(start, end)
+        elif message['type'] == 'draw_start':
+            self.game_state_label.clear()
+            self.game_state_label.setText(message['message'])
+            if message['nickname'] == self.nickname:
+                self.drawing_area.enabled = True
+                self.stop_button.setEnabled(True)
+            else:
+                self.drawing_area.enabled = False
+        elif message['type'] == 'drawing_end':
+            self.game_state_label.clear()
+            self.game_state_label.setText(message['message'])
+            self.drawing_area.enabled = False
+            self.stop_button.setEnabled(False)
+        elif message['type'] == 'request_nickname':
+            client.send(json.dumps({'type': 'nickname', 'nickname': self.nickname}).encode('utf-8'))
+        elif message['type'] == 'word':
+            self.current_word = message.get('word')
+        elif message['type'] == 'leave':
+            self.text_area.append(message['message'])
+        elif message['type'] == 'message':
+            self.text_area.append(message['message'])
+        else:
+            print(f"Unknown message type: {message}")
+
+    def draw_other(self, start, end):
         painter = QPainter(self.drawing_area.image)
         painter.setPen(QPen(Qt.black, 3, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
-        painter.drawLine(x1, y1, x2, y2)
-        print(f"Image updated: {self.drawing_area.image.size()}") 
-        # Call update() to trigger a redraw of the widget
-        self.update()
+        painter.drawLine(start, end)
+        self.drawing_area.update()
+
+    def stop_drawing(self):
+        self.stop_button.setEnabled(False)
+        self.drawing_area.enabled = False
+        
+        if client:
+            print("Stopped drawing")
+            client.send(json.dumps({'type': 'drawing_end', 'message': f'{self.nickname} stopped drawing'}).encode('utf-8'))
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
