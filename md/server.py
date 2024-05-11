@@ -50,6 +50,7 @@ def start_round():
         current_round = 0
         return
     drawer_index = random.randint(0, len(clients) - 1)
+    #print(f"Drawer index: {drawer_index}")
     drawer_nickname = nicknames[drawer_index]
     broadcast(f'Round {current_round}, {drawer_nickname} is drawing!'.encode('utf-8'))
     broadcast(f'Word: {words[current_round - 1]}'.encode('utf-8'))

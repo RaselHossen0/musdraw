@@ -43,15 +43,17 @@ class DrawingArea(QWidget):
             painter = QPainter(self.image)
             painter.setPen(QPen(self.brush_color, self.brush_size, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
             painter.drawLine(self.last_pos, event.pos())
+            print(f"Drawing line from {self.last_pos} to {event.pos()}")
+            self.send_draw_message(self.last_pos, event.pos())
             self.last_pos = event.pos()
             self.update()
-            self.send_draw_message(self.last_pos, event.pos())
 
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.LeftButton:
             self.drawing = False
 
     def paintEvent(self, event):
+        print("Painting!")
         painter = QPainter(self)
         painter.drawImage(self.rect(), self.image, self.image.rect())
 
@@ -83,6 +85,7 @@ class App(QWidget):
         right_layout.addWidget(send_button)
         
         layout.addLayout(right_layout)
+        self.drawing_area.enabled = False #-------------------------------
 
         self.get_nickname()
 
@@ -102,9 +105,12 @@ class App(QWidget):
             try:
                 message = client.recv(1024).decode('utf-8')
                 if message.startswith('DRAW'):
-                    print("Drawing!")
-                    _, x1, y1, x2, y2 = message.split()
-                    self.draw_other(int(x1), int(y1), int(x2), int(y2))
+                    if not self.drawing_area.enabled:  # Check if other client is drawing
+                        _, x1, y1, x2, y2 = message.split()
+                        print("Drawing!")
+                        print(f"Coordinates: Start({x1}, {y1}), End({x2}, {y2})")
+                        self.drawing_area.update()
+                        self.draw_other(int(x1), int(y1), int(x2), int(y2))
                 elif 'You are drawing now' in message:
                     print("You are drawing now!")
                     self.drawing_area.enabled = True
@@ -122,7 +128,9 @@ class App(QWidget):
         painter = QPainter(self.drawing_area.image)
         painter.setPen(QPen(Qt.black, 3, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
         painter.drawLine(x1, y1, x2, y2)
-        self.drawing_area.update()
+        print(f"Image updated: {self.drawing_area.image.size()}") 
+        # Call update() to trigger a redraw of the widget
+        self.update()
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
