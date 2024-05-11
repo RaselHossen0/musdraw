@@ -89,6 +89,11 @@ class App(QWidget):
         self.stop_button.clicked.connect(self.stop_drawing)
         self.logout_button = QPushButton("Logout", self)
         self.logout_button.clicked.connect(self.logout)
+
+        self.clear_board_button = QPushButton("Clear Board", self)
+        self.clear_board_button.clicked.connect(self.clear_board)
+        self.clear_board_button.setEnabled(False)
+        left_layout.addWidget(self.clear_board_button)
         left_layout.addWidget(self.game_state_label)
         left_layout.addWidget(self.stop_button)
         left_layout.addWidget(self.logout_button)
@@ -107,6 +112,9 @@ class App(QWidget):
         self.drawing_area.enabled = False
 
         self.get_nickname()
+    def clear_board(self):
+        self.drawing_area.image.fill(Qt.white)
+        self.drawing_area.update()
 
     def get_nickname(self):
         dialog = NicknameDialog(self)
@@ -119,9 +127,14 @@ class App(QWidget):
         self.close()
     def send_message(self):
         message = f'{self.nickname}: {self.msg_entry.text()}'
-        client.send(json.dumps({'type': 'message', 'message': message}).encode('utf-8'))
-        if(self.current_word and self.msg_entry.text().lower() == self.current_word.lower()):
-            client.send(json.dumps({'type': 'message', 'message': f'{self.nickname} guessed the word!'}).encode('utf-8'))
+        print(message)
+        self.text_area.append(message)
+        try:
+            client.send(json.dumps({'type': 'message', 'message': message,'sender': f'{self.nickname}' }).encode('utf-8'))
+            print("Message sent")
+        except Exception as e:
+            print("Error sending message:", e)
+        
         self.msg_entry.clear()
 
     def receive(self):
@@ -148,7 +161,7 @@ class App(QWidget):
                 break
 
     def handle_message(self, message):
-        print(message)
+        # print(message)
         if message['type'] == 'draw':
             if not self.drawing_area.enabled:
                 start = QPoint(message['start']['x'], message['start']['y'])
@@ -159,12 +172,21 @@ class App(QWidget):
                 self.draw_other(start, end)
         elif message['type'] == 'draw_start':
             self.game_state_label.clear()
-            self.game_state_label.setText(message['message'])
+            self.current_word = message.get('word')
+            self.game_state_label.setText(message['message']+f' Word: {message["word"]}')
             if message['nickname'] == self.nickname:
+                self.clear_board_button.setEnabled(True)
                 self.drawing_area.enabled = True
                 self.stop_button.setEnabled(True)
             else:
                 self.drawing_area.enabled = False
+                
+        elif message['type'] == 'draw_info':
+            
+            self.game_state_label.clear()
+            self.game_state_label.setText(message['message'])
+            
+            
         elif message['type'] == 'drawing_end':
             self.game_state_label.clear()
             self.game_state_label.setText(message['message'])
@@ -177,9 +199,21 @@ class App(QWidget):
         elif message['type'] == 'leave':
             self.text_area.append(message['message'])
         elif message['type'] == 'message':
+            print(message['message'])
+        elif message['type'] == 'guess':
+            self.drawing_area.enabled = False
+            self.stop_button.setEnabled(False)
+           
+            
             self.text_area.append(message['message'])
         else:
-            print(f"Unknown message type: {message}")
+            try:
+               
+                self.text_area.append(message['message'])
+            except:
+                print(message)
+                print(f"Unknown message type: {message}")
+            
 
     def draw_other(self, start, end):
         painter = QPainter(self.drawing_area.image)

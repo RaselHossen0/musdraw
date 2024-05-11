@@ -12,11 +12,14 @@ server.bind((host, port))
 server.listen()
 
 clients = []
+late_clients = []
+late_nicknames = []
 nicknames = []
 draw_complete=[]
 max_rounds = 4
 current_round = 0
 words = ['Elephant', 'Apple', 'Tree', 'Cow', 'Dog']
+current_word = ''
 game_started = False
 
 def broadcast(message, exclude=None):
@@ -38,26 +41,42 @@ def remove(client):
         print(f'{nickname} has disconnected.')
 
 def handle(client):
+    global current_round, current_word
     try:
         while True:
             message = json.loads(client.recv(1024).decode('utf-8'))
             if message.get('type') == 'message':
+                print(f"Received message: {message.get('message')}")
+                try:
+                    guess_word=message.get('message').split(': ')[1]
+                    print(guess_word)
+                    if guess_word.lower() ==current_word.lower():
+                        broadcast({'type': 'guess', 'message': f'{message.get("sender")} guessed the word!'})
+                        broadcast({'type': 'message', 'message': f'Round {current_round} is over!'})
+                        
+                        start_round()
+                except Exception as e:
+                    print(e)
+                    print("No guess")
                 broadcast(message, exclude=client)
             elif message.get('type') == 'draw':
                 broadcast(message, exclude=client)
     except:
         remove(client)
 def handle_round(current_round, clients, nicknames, words):
+   global current_word
    print("Handling round")
 
    for i in range(len(clients)):
        
         drawer_nickname = nicknames[i]
         drawer_client = clients[i]
+        current_word = words[i % len(words)]
 
         broadcast({'type': 'message', 'message': f'Round {current_round}, {drawer_nickname} is drawing!'})
         broadcast({'type': 'word', 'word': words[i % len(words)]},exclude=drawer_client)
-        drawer_client.send(json.dumps({'type': 'draw_start','nickname':f'{drawer_nickname}','message':f'{drawer_nickname} is drawing' ,'word': words[i % len(words)]}).encode('utf-8')+ b'\n')
+        broadcast({'type': 'draw_info','nickname':f'{drawer_nickname}','message':f'{drawer_nickname} is drawing' },exclude=drawer_client)
+        drawer_client.send(json.dumps({'type': 'draw_start','nickname':f'{drawer_nickname}','message':'Your turn' ,'word': f'{words[i % len(words)]}' }).encode('utf-8')+ b'\n')
         
         move_next = False
         while True:
@@ -73,7 +92,7 @@ def handle_round(current_round, clients, nicknames, words):
             except:
                 remove(drawer_client)
                 break
-        if move_next:
+        if move_next and i < len(clients)-1:
             continue
         else:
            return True
@@ -133,6 +152,10 @@ def receive():
 
             if len(clients) >= 3 and not game_started:
                 start_game()
+            if len(clients) > 3 and game_started:
+                late_clients.append(client)
+                late_nicknames.append(nickname)
+                client.send(json.dumps({'type': 'message', 'message': 'Game already started, wait for next round.'}).encode('utf-8')+ b'\n')
 
             thread = threading.Thread(target=handle, args=(client,))
             thread.start()
