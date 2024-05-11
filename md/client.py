@@ -72,11 +72,21 @@ class App(QWidget):
         layout = QHBoxLayout(self)
         self.drawing_area = DrawingArea()
         layout.addWidget(self.drawing_area)
+
         
         right_layout = QVBoxLayout()
+        self.game_state_label = QLabel("Waiting for other players to join", self)
+        self.game_state_label.setFixedHeight(30)
+        self.game_state_label.setFixedWidth(200)
+        right_layout.addWidget(self.game_state_label)
         self.text_area = QTextEdit()
         self.text_area.setReadOnly(True)
         right_layout.addWidget(self.text_area)
+
+        
+        
+
+        
         
         self.msg_entry = QLineEdit()
         send_button = QPushButton("Send")
@@ -85,6 +95,7 @@ class App(QWidget):
         right_layout.addWidget(send_button)
         
         layout.addLayout(right_layout)
+        
         self.drawing_area.enabled = False #-------------------------------
 
         self.get_nickname()
@@ -113,8 +124,10 @@ class App(QWidget):
                         self.draw_other(int(x1), int(y1), int(x2), int(y2))
                 elif 'You are drawing now' in message:
                     print("You are drawing now!")
+                    self.game_state_label.setText(message)
                     self.drawing_area.enabled = True
                 elif 'is drawing!' in message or 'Draw' in message:
+                    self.game_state_label.setText(message)
                     print("Someone is drawing!")
                     self.drawing_area.enabled = False
                 else:
