@@ -92,7 +92,7 @@ class App(QWidget):
 
         self.clear_board_button = QPushButton("Clear Board", self)
         self.clear_board_button.clicked.connect(self.clear_board)
-        self.clear_board_button.setEnabled(False)
+        self.clear_board_button.setEnabled(True)
         left_layout.addWidget(self.clear_board_button)
         left_layout.addWidget(self.game_state_label)
         left_layout.addWidget(self.stop_button)
@@ -175,7 +175,7 @@ class App(QWidget):
             self.current_word = message.get('word')
             self.game_state_label.setText(message['message']+f' Word: {message["word"]}')
             if message['nickname'] == self.nickname:
-                self.clear_board_button.setEnabled(True)
+                
                 self.drawing_area.enabled = True
                 self.stop_button.setEnabled(True)
             else:
@@ -199,6 +199,7 @@ class App(QWidget):
         elif message['type'] == 'leave':
             self.text_area.append(message['message'])
         elif message['type'] == 'message':
+            self.text_area.append(message['message'])
             print(message['message'])
         elif message['type'] == 'guess':
             self.drawing_area.enabled = False
